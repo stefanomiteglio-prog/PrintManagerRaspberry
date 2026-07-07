@@ -231,10 +231,22 @@ class TestBackendAPI(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             dest_path = Path(tmp_dir) / "downloaded.jpg"
+            
+            # Test simple host-relative path
             success = self.api.download_photo("/static/photo.jpg", dest_path)
             self.assertTrue(success)
-            mock_get.assert_called_once_with(
-                "https://example.com/api/static/photo.jpg",
+            mock_get.assert_any_call(
+                "https://example.com/static/photo.jpg",
+                headers={"X-Printer-Key": "secret-key"},
+                stream=True,
+                timeout=15
+            )
+            
+            # Test host-relative path starting with /api/ (as returned by production backend)
+            success = self.api.download_photo("/api/photos/3/download", dest_path)
+            self.assertTrue(success)
+            mock_get.assert_any_call(
+                "https://example.com/api/photos/3/download",
                 headers={"X-Printer-Key": "secret-key"},
                 stream=True,
                 timeout=15

@@ -101,7 +101,9 @@ class BackendAPI:
         if download_url.startswith("http://") or download_url.startswith("https://"):
             full_url = download_url
         else:
-            full_url = urllib.parse.urljoin(self.base_url + "/", download_url.lstrip("/"))
+            parsed_base = urllib.parse.urlparse(self.base_url)
+            host_root = f"{parsed_base.scheme}://{parsed_base.netloc}"
+            full_url = urllib.parse.urljoin(host_root, download_url)
 
         logger.info(f"Downloading photo from {full_url}")
         for attempt in range(1, 4):
