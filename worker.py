@@ -333,7 +333,12 @@ def process_single_job(job: dict, api: BackendAPI) -> bool:
             save_state(state)
 
         # B. Print all photos
-        for file_path in downloaded_paths:
+        for idx, file_path in enumerate(downloaded_paths):
+            if idx > 0:
+                delay = 8
+                logger.info(f"Waiting {delay} seconds before sending the next print job...")
+                time.sleep(delay)
+
             print_ok = print_file(PRINTER_NAME, file_path, api.dry_run)
             if not print_ok:
                 success = False

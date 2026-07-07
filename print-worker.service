@@ -5,9 +5,9 @@ Requires=cups.service
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/print-worker
-ExecStart=/home/pi/print-worker/venv/bin/python worker.py
+User=pi-nexthouse
+WorkingDirectory=/home/pi-nexthouse/PrintManagerRaspberry
+ExecStart=/home/pi-nexthouse/PrintManagerRaspberry/.venv/bin/python worker.py
 Restart=always
 RestartSec=10
 StandardOutput=inherit
