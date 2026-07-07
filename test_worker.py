@@ -351,6 +351,41 @@ class TestCupsIntegration(unittest.TestCase):
             self.assertTrue(result)
             mock_run.assert_not_called()
 
+    def test_wait_for_printer_idle_dry_run(self):
+        with patch("subprocess.run") as mock_run:
+            result = worker.wait_for_printer_idle("SELPHY", dry_run=True)
+            self.assertTrue(result)
+            mock_run.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_wait_for_printer_idle_success(self, mock_run):
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "printer SELPHY is idle."
+        mock_run.return_value = mock_proc
+
+        result = worker.wait_for_printer_idle("SELPHY", dry_run=False)
+        self.assertTrue(result)
+        mock_run.assert_called_once()
+
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_wait_for_printer_idle_loop(self, mock_run, mock_sleep):
+        mock_proc_busy = MagicMock()
+        mock_proc_busy.returncode = 0
+        mock_proc_busy.stdout = "printer SELPHY now printing SELPHY-4..."
+
+        mock_proc_idle = MagicMock()
+        mock_proc_idle.returncode = 0
+        mock_proc_idle.stdout = "printer SELPHY is idle."
+
+        mock_run.side_effect = [mock_proc_busy, mock_proc_idle]
+
+        result = worker.wait_for_printer_idle("SELPHY", dry_run=False, check_interval_seconds=1)
+        self.assertTrue(result)
+        self.assertEqual(mock_run.call_count, 2)
+        mock_sleep.assert_called_once_with(1)
+
 
 class TestJobProcessing(unittest.TestCase):
 
@@ -364,8 +399,9 @@ class TestJobProcessing(unittest.TestCase):
         if TEMP_STATE_FILE.exists():
             TEMP_STATE_FILE.unlink()
 
+    @patch("worker.wait_for_printer_idle")
     @patch("worker.print_file")
-    def test_process_single_job_success(self, mock_print):
+    def test_process_single_job_success(self, mock_print, mock_wait):
         self.api.download_photo.return_value = True
         self.api.update_job_status.return_value = True
         mock_print.return_value = True

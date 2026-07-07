@@ -218,6 +218,46 @@ def check_cups_printer(printer_name: str) -> bool:
         return False
 
 
+def wait_for_printer_idle(printer_name: str, dry_run: bool, check_interval_seconds: int = 5, max_wait_seconds: int = 180) -> bool:
+    """Blocks until the CUPS printer is idle, checking at regular intervals."""
+    if dry_run:
+        return True
+
+    logger.info(f"Waiting for printer '{printer_name}' to become idle...")
+    start_time = time.time()
+    
+    while time.time() - start_time < max_wait_seconds:
+        try:
+            result = subprocess.run(
+                ["lpstat", "-p", printer_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                output = result.stdout.lower()
+                if "is idle" in output:
+                    logger.info(f"Printer '{printer_name}' is idle. Proceeding.")
+                    return True
+                else:
+                    logger.debug(f"Printer '{printer_name}' status: {result.stdout.strip()}")
+            else:
+                logger.warning(f"lpstat returned exit code {result.returncode}: {result.stderr.strip()}")
+                return True
+        except FileNotFoundError:
+            logger.warning("lpstat utility not found. Skipping printer idle check.")
+            return True
+        except Exception as e:
+            logger.warning(f"Error checking printer status: {e}")
+            return True
+            
+        time.sleep(check_interval_seconds)
+        
+    logger.warning(f"Printer '{printer_name}' did not become idle within {max_wait_seconds} seconds. Continuing anyway.")
+    return False
+
+
 def print_file(printer_name: str, file_path: Path, dry_run: bool) -> bool:
     """Sends a local file to the CUPS printer queue."""
     if dry_run:
@@ -335,9 +375,8 @@ def process_single_job(job: dict, api: BackendAPI) -> bool:
         # B. Print all photos
         for idx, file_path in enumerate(downloaded_paths):
             if idx > 0:
-                delay = 8
-                logger.info(f"Waiting {delay} seconds before sending the next print job...")
-                time.sleep(delay)
+                # Wait dynamically until printer is idle
+                wait_for_printer_idle(PRINTER_NAME, api.dry_run)
 
             print_ok = print_file(PRINTER_NAME, file_path, api.dry_run)
             if not print_ok:
@@ -345,6 +384,10 @@ def process_single_job(job: dict, api: BackendAPI) -> bool:
                 error_msg = f"CUPS print command failed for photo {file_path.name}"
                 logger.error(error_msg)
                 break
+            
+            # Give CUPS 2 seconds to transition states before checking next
+            if not api.dry_run:
+                time.sleep(2)
 
     # 4. Final status report and state update
     if success:
