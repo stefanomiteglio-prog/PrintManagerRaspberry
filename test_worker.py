@@ -122,7 +122,7 @@ class TestBackendAPI(unittest.TestCase):
         mock_get.assert_called_once_with(
             "https://example.com/api/printer/jobs/next",
             headers={"X-Printer-Key": "secret-key"},
-            timeout=15
+            timeout=30
         )
 
     @patch("requests.get")
@@ -162,7 +162,7 @@ class TestBackendAPI(unittest.TestCase):
             "https://example.com/api/printer/jobs/101/status",
             headers={"X-Printer-Key": "secret-key"},
             json={"status": "completed"},
-            timeout=15
+            timeout=30
         )
 
     @patch("time.sleep")
@@ -239,7 +239,7 @@ class TestBackendAPI(unittest.TestCase):
                 "https://example.com/static/photo.jpg",
                 headers={"X-Printer-Key": "secret-key"},
                 stream=True,
-                timeout=15
+                timeout=60
             )
             
             # Test host-relative path starting with /api/ (as returned by production backend)
@@ -249,7 +249,7 @@ class TestBackendAPI(unittest.TestCase):
                 "https://example.com/api/photos/3/download",
                 headers={"X-Printer-Key": "secret-key"},
                 stream=True,
-                timeout=15
+                timeout=60
             )
 
     @patch("time.sleep")
