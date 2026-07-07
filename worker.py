@@ -59,7 +59,7 @@ class BackendAPI:
         url = f"{self.base_url}/printer/jobs/next"
         try:
             logger.debug(f"Polling endpoint: {url}")
-            response = requests.get(url, headers=self.headers, timeout=15)
+            response = requests.get(url, headers=self.headers, timeout=30)
             if response.status_code == 204:
                 return None
             elif response.status_code == 200:
@@ -85,7 +85,7 @@ class BackendAPI:
         logger.info(f"Updating job {job_id} status to '{status}' on backend...")
         for attempt in range(1, 3):
             try:
-                response = requests.post(url, headers=self.headers, json=payload, timeout=15)
+                response = requests.post(url, headers=self.headers, json=payload, timeout=30)
                 response.raise_for_status()
                 logger.info(f"Successfully updated status for job {job_id} to '{status}'.")
                 return True
@@ -108,7 +108,7 @@ class BackendAPI:
         logger.info(f"Downloading photo from {full_url}")
         for attempt in range(1, 4):
             try:
-                response = requests.get(full_url, headers=self.headers, stream=True, timeout=15)
+                response = requests.get(full_url, headers=self.headers, stream=True, timeout=60)
                 response.raise_for_status()
 
                 # Ensure destination folder exists
