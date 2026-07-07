@@ -1,0 +1,17 @@
+[Unit]
+Description=Raspberry Pi Print Worker for CUPS
+After=network.target cups.service
+Requires=cups.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/print-worker
+ExecStart=/home/pi/print-worker/venv/bin/python worker.py
+Restart=always
+RestartSec=10
+StandardOutput=inherit
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target

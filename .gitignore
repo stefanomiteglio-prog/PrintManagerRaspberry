@@ -1,0 +1,21 @@
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Configuration and state files
+.env
+.worker_state.json
+
+# IDEs
+.vscode/
+.idea/
+*~
+*.swp
