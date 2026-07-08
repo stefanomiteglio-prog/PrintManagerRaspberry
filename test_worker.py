@@ -386,6 +386,80 @@ class TestCupsIntegration(unittest.TestCase):
         self.assertEqual(mock_run.call_count, 2)
         mock_sleep.assert_called_once_with(1)
 
+    @patch("subprocess.run")
+    def test_check_cups_printer_disabled(self, mock_run):
+        mock_proc_lpstat = MagicMock()
+        mock_proc_lpstat.returncode = 0
+        mock_proc_lpstat.stdout = "printer SELPHY is disabled since Wed Jul 8 13:30:51 2026 - Paused"
+
+        mock_proc_cupsenable = MagicMock()
+        mock_proc_cupsenable.returncode = 0
+        mock_proc_cupsenable.stdout = ""
+
+        mock_run.side_effect = [mock_proc_lpstat, mock_proc_cupsenable]
+
+        result = worker.check_cups_printer("SELPHY")
+        self.assertTrue(result)
+        self.assertEqual(mock_run.call_count, 2)
+        mock_run.assert_any_call(
+            ["lpstat", "-p", "SELPHY"],
+            stdout=subprocess_pipe(),
+            stderr=subprocess_pipe(),
+            text=True
+        )
+        mock_run.assert_any_call(
+            ["cupsenable", "SELPHY"],
+            stdout=subprocess_pipe(),
+            stderr=subprocess_pipe(),
+            text=True
+        )
+
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_wait_for_printer_idle_disabled(self, mock_run, mock_sleep):
+        mock_proc_lpstat_disabled = MagicMock()
+        mock_proc_lpstat_disabled.returncode = 0
+        mock_proc_lpstat_disabled.stdout = "printer SELPHY is disabled since Wed Jul 8 13:30:51 2026 - Paused"
+
+        mock_proc_cupsenable = MagicMock()
+        mock_proc_cupsenable.returncode = 0
+
+        mock_proc_lpstat_idle = MagicMock()
+        mock_proc_lpstat_idle.returncode = 0
+        mock_proc_lpstat_idle.stdout = "printer SELPHY is idle."
+
+        mock_run.side_effect = [
+            mock_proc_lpstat_disabled,
+            mock_proc_cupsenable,
+            mock_proc_lpstat_idle
+        ]
+
+        result = worker.wait_for_printer_idle("SELPHY", dry_run=False, check_interval_seconds=1)
+        self.assertTrue(result)
+        self.assertEqual(mock_run.call_count, 3)
+        mock_sleep.assert_called_once_with(1)
+
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_wait_for_printer_idle_communication_warning(self, mock_run, mock_sleep):
+        mock_proc_lpstat_warning = MagicMock()
+        mock_proc_lpstat_warning.returncode = 0
+        mock_proc_lpstat_warning.stdout = "printer SELPHY now printing SELPHY-23. enabled since...\nWaiting for printer to become available."
+
+        mock_proc_cupsenable = MagicMock()
+        mock_proc_cupsenable.returncode = 0
+
+        mock_run.side_effect = [
+            mock_proc_lpstat_warning, mock_proc_cupsenable,
+            mock_proc_lpstat_warning, mock_proc_cupsenable,
+            mock_proc_lpstat_warning, mock_proc_cupsenable,
+        ]
+
+        result = worker.wait_for_printer_idle("SELPHY", dry_run=False, check_interval_seconds=1)
+        self.assertTrue(result)
+        self.assertEqual(mock_run.call_count, 6)
+        self.assertEqual(mock_sleep.call_count, 2)
+
 
 class TestJobProcessing(unittest.TestCase):
 

@@ -196,7 +196,7 @@ def cleanup_temp_dir(job_id: int):
 
 # CUPS integration
 def check_cups_printer(printer_name: str) -> bool:
-    """Verifies that the printer is correctly registered in CUPS."""
+    """Verifies that the printer is correctly registered in CUPS, attempting to enable it if disabled."""
     try:
         result = subprocess.run(
             ["lpstat", "-p", printer_name],
@@ -205,7 +205,23 @@ def check_cups_printer(printer_name: str) -> bool:
             text=True
         )
         if result.returncode == 0:
-            logger.info(f"CUPS printer verification success: {result.stdout.strip()}")
+            output = result.stdout
+            logger.info(f"CUPS printer verification success: {output.strip()}")
+            if "disabled" in output.lower():
+                logger.warning(f"Printer '{printer_name}' is disabled. Attempting to enable it...")
+                enable_result = subprocess.run(
+                    ["cupsenable", printer_name],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                if enable_result.returncode == 0:
+                    logger.info(f"Successfully enabled printer '{printer_name}'.")
+                else:
+                    logger.warning(
+                        f"Failed to enable printer '{printer_name}' via cupsenable: {enable_result.stderr.strip()}. "
+                        "The printer will remain disabled until resolved manually."
+                    )
             return True
         else:
             logger.error(f"CUPS printer verification failed: {result.stderr.strip()}")
@@ -225,6 +241,7 @@ def wait_for_printer_idle(printer_name: str, dry_run: bool, check_interval_secon
 
     logger.info(f"Waiting for printer '{printer_name}' to become idle...")
     start_time = time.time()
+    communication_warning_count = 0
     
     while time.time() - start_time < max_wait_seconds:
         try:
@@ -240,7 +257,30 @@ def wait_for_printer_idle(printer_name: str, dry_run: bool, check_interval_secon
                 if "is idle" in output:
                     logger.info(f"Printer '{printer_name}' is idle. Proceeding.")
                     return True
+                
+                # Check for disabled status and try to enable it
+                if "disabled" in output:
+                    logger.warning(f"Printer '{printer_name}' is disabled. Attempting to enable it...")
+                    subprocess.run(["cupsenable", printer_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                
+                # Check for communication warnings (offline, unplugged, sleep, etc.)
+                if "waiting for printer to become available" in output or "waiting for device" in output:
+                    communication_warning_count += 1
+                    logger.warning(
+                        f"Printer '{printer_name}' is waiting for device (attempt {communication_warning_count}/3). "
+                        "Attempting to resume it via cupsenable..."
+                    )
+                    subprocess.run(["cupsenable", printer_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    
+                    if communication_warning_count >= 3:
+                        logger.warning(
+                            f"Printer '{printer_name}' remains stuck in communication warning state. "
+                            "Proceeding to prevent blocking the event loop."
+                        )
+                        return True
                 else:
+                    # Reset communication warning count if status is other non-idle (e.g. printing normally)
+                    communication_warning_count = 0
                     logger.debug(f"Printer '{printer_name}' status: {result.stdout.strip()}")
             else:
                 logger.warning(f"lpstat returned exit code {result.returncode}: {result.stderr.strip()}")
