@@ -414,6 +414,22 @@ class TestCupsIntegration(unittest.TestCase):
             text=True
         )
 
+    @patch("subprocess.run")
+    def test_check_cups_printer_disabled_enable_failed(self, mock_run):
+        mock_proc_lpstat = MagicMock()
+        mock_proc_lpstat.returncode = 0
+        mock_proc_lpstat.stdout = "printer SELPHY is disabled since Wed Jul 8 13:30:51 2026 - Paused"
+
+        mock_proc_cupsenable = MagicMock()
+        mock_proc_cupsenable.returncode = 1
+        mock_proc_cupsenable.stderr = "cupsenable: Operation failed"
+
+        mock_run.side_effect = [mock_proc_lpstat, mock_proc_cupsenable]
+
+        result = worker.check_cups_printer("SELPHY")
+        self.assertFalse(result)
+        self.assertEqual(mock_run.call_count, 2)
+
     @patch("time.sleep")
     @patch("subprocess.run")
     def test_wait_for_printer_idle_disabled(self, mock_run, mock_sleep):
@@ -661,6 +677,26 @@ class TestMainWorkerLoop(unittest.TestCase):
             mock_api.poll_next_job.assert_called_once()
             # Since once=True, sleep should not be called
             mock_sleep.assert_not_called()
+
+    @patch("worker.check_cups_printer")
+    @patch("worker.BackendAPI")
+    @patch("worker.handle_startup_recovery")
+    @patch("time.sleep")
+    def test_main_printer_disabled_skips_polling(self, mock_sleep, mock_recovery, mock_api_class, mock_check):
+        worker.PRINTER_KEY = "testkey"
+        # First call (startup check) returns True, second call (in loop) returns False
+        mock_check.side_effect = [True, False]
+
+        mock_api = MagicMock()
+        mock_api_class.return_value = mock_api
+
+        with patch("argparse.ArgumentParser.parse_args") as mock_args:
+            mock_args.return_value = MagicMock(once=True, dry_run=False, send_status_in_dry_run=False)
+
+            worker.main()
+
+            # Since printer was disabled in loop, polling should be skipped
+            mock_api.poll_next_job.assert_not_called()
 
 
 # Helper function to get subprocess PIPE object

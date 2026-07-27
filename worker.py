@@ -196,7 +196,7 @@ def cleanup_temp_dir(job_id: int):
 
 # CUPS integration
 def check_cups_printer(printer_name: str) -> bool:
-    """Verifies that the printer is correctly registered in CUPS, attempting to enable it if disabled."""
+    """Verifies that the printer is correctly registered and enabled in CUPS, attempting to enable it if disabled."""
     try:
         result = subprocess.run(
             ["lpstat", "-p", printer_name],
@@ -206,7 +206,6 @@ def check_cups_printer(printer_name: str) -> bool:
         )
         if result.returncode == 0:
             output = result.stdout
-            logger.info(f"CUPS printer verification success: {output.strip()}")
             if "disabled" in output.lower():
                 logger.warning(f"Printer '{printer_name}' is disabled. Attempting to enable it...")
                 enable_result = subprocess.run(
@@ -217,12 +216,16 @@ def check_cups_printer(printer_name: str) -> bool:
                 )
                 if enable_result.returncode == 0:
                     logger.info(f"Successfully enabled printer '{printer_name}'.")
+                    return True
                 else:
                     logger.warning(
                         f"Failed to enable printer '{printer_name}' via cupsenable: {enable_result.stderr.strip()}. "
                         "The printer will remain disabled until resolved manually."
                     )
-            return True
+                    return False
+            else:
+                logger.info(f"CUPS printer verification success: {output.strip()}")
+                return True
         else:
             logger.error(f"CUPS printer verification failed: {result.stderr.strip()}")
             return False
@@ -500,6 +503,14 @@ def main():
 
     logger.info("Starting worker event loop...")
     while True:
+        if not args.dry_run and not check_cups_printer(PRINTER_NAME):
+            logger.warning(f"Printer '{PRINTER_NAME}' is currently disabled or unavailable in CUPS. Skipping job polling.")
+            if args.once:
+                logger.info("Terminating because --once flag was specified.")
+                break
+            time.sleep(POLL_INTERVAL_SECONDS)
+            continue
+
         logger.debug("Checking for next print job...")
         job = api.poll_next_job()
         
