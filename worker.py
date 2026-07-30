@@ -237,14 +237,33 @@ def check_cups_printer(printer_name: str) -> bool:
         return False
 
 
+def is_cups_queue_empty(printer_name: str) -> bool:
+    """Checks if there are any active or pending jobs in the CUPS queue for the specified printer."""
+    try:
+        result = subprocess.run(
+            ["lpstat", "-o", printer_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10
+        )
+        if result.returncode == 0:
+            return len(result.stdout.strip()) == 0
+        return True
+    except FileNotFoundError:
+        return True
+    except Exception as e:
+        logger.warning(f"Error checking CUPS job queue for '{printer_name}': {e}")
+        return True
+
+
 def wait_for_printer_idle(printer_name: str, dry_run: bool, check_interval_seconds: int = 5, max_wait_seconds: int = 180) -> bool:
-    """Blocks until the CUPS printer is idle, checking at regular intervals."""
+    """Blocks until the CUPS printer is idle and its queue is empty, checking at regular intervals."""
     if dry_run:
         return True
 
     logger.info(f"Waiting for printer '{printer_name}' to become idle...")
     start_time = time.time()
-    communication_warning_count = 0
     
     while time.time() - start_time < max_wait_seconds:
         try:
@@ -257,34 +276,23 @@ def wait_for_printer_idle(printer_name: str, dry_run: bool, check_interval_secon
             )
             if result.returncode == 0:
                 output = result.stdout.lower()
-                if "is idle" in output:
-                    logger.info(f"Printer '{printer_name}' is idle. Proceeding.")
-                    return True
                 
                 # Check for disabled status and try to enable it
                 if "disabled" in output:
                     logger.warning(f"Printer '{printer_name}' is disabled. Attempting to enable it...")
                     subprocess.run(["cupsenable", printer_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 
-                # Check for communication warnings (offline, unplugged, sleep, etc.)
-                if "waiting for printer to become available" in output or "waiting for device" in output:
-                    communication_warning_count += 1
-                    logger.warning(
-                        f"Printer '{printer_name}' is waiting for device (attempt {communication_warning_count}/3). "
-                        "Attempting to resume it via cupsenable..."
-                    )
-                    subprocess.run(["cupsenable", printer_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    
-                    if communication_warning_count >= 3:
-                        logger.warning(
-                            f"Printer '{printer_name}' remains stuck in communication warning state. "
-                            "Proceeding to prevent blocking the event loop."
-                        )
+                is_idle = "is idle" in output and "disabled" not in output and "printing" not in output and "processing" not in output
+                
+                if is_idle:
+                    queue_empty = is_cups_queue_empty(printer_name)
+                    if queue_empty:
+                        logger.info(f"Printer '{printer_name}' is idle and queue is empty. Proceeding.")
                         return True
+                    else:
+                        logger.debug(f"Printer '{printer_name}' is idle but CUPS queue is not empty. Waiting...")
                 else:
-                    # Reset communication warning count if status is other non-idle (e.g. printing normally)
-                    communication_warning_count = 0
-                    logger.debug(f"Printer '{printer_name}' status: {result.stdout.strip()}")
+                    logger.debug(f"Printer '{printer_name}' status: {result.stdout.strip()}. Waiting...")
             else:
                 logger.warning(f"lpstat returned exit code {result.returncode}: {result.stderr.strip()}")
                 return True
@@ -433,6 +441,8 @@ def process_single_job(job: dict, api: BackendAPI) -> bool:
 
     # 4. Final status report and state update
     if success:
+        # Wait for physical printing to finish before marking completed
+        wait_for_printer_idle(PRINTER_NAME, api.dry_run)
         logger.info(f"Successfully processed all parts of job {job_id}.")
         # Update backend status
         api.update_job_status(job_id, "completed")

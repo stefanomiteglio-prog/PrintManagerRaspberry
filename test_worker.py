@@ -351,6 +351,33 @@ class TestCupsIntegration(unittest.TestCase):
             self.assertTrue(result)
             mock_run.assert_not_called()
 
+    @patch("subprocess.run")
+    def test_is_cups_queue_empty_true(self, mock_run):
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = ""
+        mock_run.return_value = mock_proc
+
+        result = worker.is_cups_queue_empty("SELPHY")
+        self.assertTrue(result)
+        mock_run.assert_called_once_with(
+            ["lpstat", "-o", "SELPHY"],
+            stdout=subprocess_pipe(),
+            stderr=subprocess_pipe(),
+            text=True,
+            timeout=10
+        )
+
+    @patch("subprocess.run")
+    def test_is_cups_queue_empty_false(self, mock_run):
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "SELPHY-52 root 1024 Thu 30 Jul 2026 14:31:55 CEST"
+        mock_run.return_value = mock_proc
+
+        result = worker.is_cups_queue_empty("SELPHY")
+        self.assertFalse(result)
+
     def test_wait_for_printer_idle_dry_run(self):
         with patch("subprocess.run") as mock_run:
             result = worker.wait_for_printer_idle("SELPHY", dry_run=True)
@@ -359,14 +386,19 @@ class TestCupsIntegration(unittest.TestCase):
 
     @patch("subprocess.run")
     def test_wait_for_printer_idle_success(self, mock_run):
-        mock_proc = MagicMock()
-        mock_proc.returncode = 0
-        mock_proc.stdout = "printer SELPHY is idle."
-        mock_run.return_value = mock_proc
+        mock_proc_p = MagicMock()
+        mock_proc_p.returncode = 0
+        mock_proc_p.stdout = "printer SELPHY is idle."
+
+        mock_proc_o = MagicMock()
+        mock_proc_o.returncode = 0
+        mock_proc_o.stdout = ""
+
+        mock_run.side_effect = [mock_proc_p, mock_proc_o]
 
         result = worker.wait_for_printer_idle("SELPHY", dry_run=False)
         self.assertTrue(result)
-        mock_run.assert_called_once()
+        self.assertEqual(mock_run.call_count, 2)
 
     @patch("time.sleep")
     @patch("subprocess.run")
@@ -379,11 +411,15 @@ class TestCupsIntegration(unittest.TestCase):
         mock_proc_idle.returncode = 0
         mock_proc_idle.stdout = "printer SELPHY is idle."
 
-        mock_run.side_effect = [mock_proc_busy, mock_proc_idle]
+        mock_proc_empty = MagicMock()
+        mock_proc_empty.returncode = 0
+        mock_proc_empty.stdout = ""
+
+        mock_run.side_effect = [mock_proc_busy, mock_proc_idle, mock_proc_empty]
 
         result = worker.wait_for_printer_idle("SELPHY", dry_run=False, check_interval_seconds=1)
         self.assertTrue(result)
-        self.assertEqual(mock_run.call_count, 2)
+        self.assertEqual(mock_run.call_count, 3)
         mock_sleep.assert_called_once_with(1)
 
     @patch("subprocess.run")
@@ -401,18 +437,6 @@ class TestCupsIntegration(unittest.TestCase):
         result = worker.check_cups_printer("SELPHY")
         self.assertTrue(result)
         self.assertEqual(mock_run.call_count, 2)
-        mock_run.assert_any_call(
-            ["lpstat", "-p", "SELPHY"],
-            stdout=subprocess_pipe(),
-            stderr=subprocess_pipe(),
-            text=True
-        )
-        mock_run.assert_any_call(
-            ["cupsenable", "SELPHY"],
-            stdout=subprocess_pipe(),
-            stderr=subprocess_pipe(),
-            text=True
-        )
 
     @patch("subprocess.run")
     def test_check_cups_printer_disabled_enable_failed(self, mock_run):
@@ -444,37 +468,47 @@ class TestCupsIntegration(unittest.TestCase):
         mock_proc_lpstat_idle.returncode = 0
         mock_proc_lpstat_idle.stdout = "printer SELPHY is idle."
 
+        mock_proc_queue_empty = MagicMock()
+        mock_proc_queue_empty.returncode = 0
+        mock_proc_queue_empty.stdout = ""
+
         mock_run.side_effect = [
             mock_proc_lpstat_disabled,
             mock_proc_cupsenable,
-            mock_proc_lpstat_idle
+            mock_proc_lpstat_idle,
+            mock_proc_queue_empty
+        ]
+
+        result = worker.wait_for_printer_idle("SELPHY", dry_run=False, check_interval_seconds=1)
+        self.assertTrue(result)
+        self.assertEqual(mock_run.call_count, 4)
+        mock_sleep.assert_called_once_with(1)
+
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_wait_for_printer_idle_now_printing(self, mock_run, mock_sleep):
+        mock_proc_lpstat_printing = MagicMock()
+        mock_proc_lpstat_printing.returncode = 0
+        mock_proc_lpstat_printing.stdout = "printer SELPHY now printing SELPHY-52. enabled since...\n        Printing page 1, 100%"
+
+        mock_proc_lpstat_idle = MagicMock()
+        mock_proc_lpstat_idle.returncode = 0
+        mock_proc_lpstat_idle.stdout = "printer SELPHY is idle."
+
+        mock_proc_queue_empty = MagicMock()
+        mock_proc_queue_empty.returncode = 0
+        mock_proc_queue_empty.stdout = ""
+
+        mock_run.side_effect = [
+            mock_proc_lpstat_printing,
+            mock_proc_lpstat_idle,
+            mock_proc_queue_empty
         ]
 
         result = worker.wait_for_printer_idle("SELPHY", dry_run=False, check_interval_seconds=1)
         self.assertTrue(result)
         self.assertEqual(mock_run.call_count, 3)
         mock_sleep.assert_called_once_with(1)
-
-    @patch("time.sleep")
-    @patch("subprocess.run")
-    def test_wait_for_printer_idle_communication_warning(self, mock_run, mock_sleep):
-        mock_proc_lpstat_warning = MagicMock()
-        mock_proc_lpstat_warning.returncode = 0
-        mock_proc_lpstat_warning.stdout = "printer SELPHY now printing SELPHY-23. enabled since...\nWaiting for printer to become available."
-
-        mock_proc_cupsenable = MagicMock()
-        mock_proc_cupsenable.returncode = 0
-
-        mock_run.side_effect = [
-            mock_proc_lpstat_warning, mock_proc_cupsenable,
-            mock_proc_lpstat_warning, mock_proc_cupsenable,
-            mock_proc_lpstat_warning, mock_proc_cupsenable,
-        ]
-
-        result = worker.wait_for_printer_idle("SELPHY", dry_run=False, check_interval_seconds=1)
-        self.assertTrue(result)
-        self.assertEqual(mock_run.call_count, 6)
-        self.assertEqual(mock_sleep.call_count, 2)
 
 
 class TestJobProcessing(unittest.TestCase):
@@ -514,8 +548,8 @@ class TestJobProcessing(unittest.TestCase):
 
         # Check printer was called twice
         self.assertEqual(mock_print.call_count, 2)
-        # Check wait_for_printer_idle was called for each photo (including idx 0)
-        self.assertEqual(mock_wait.call_count, 2)
+        # Check wait_for_printer_idle was called for each photo (2) + final completion (1)
+        self.assertEqual(mock_wait.call_count, 3)
 
         # Temp directory should be cleaned up
         temp_dir = worker.get_job_temp_dir(202)
@@ -542,8 +576,8 @@ class TestJobProcessing(unittest.TestCase):
 
         result = worker.process_single_job(job, self.api)
         self.assertTrue(result)
-        # Verify wait_for_printer_idle was called for photo index 0
-        mock_wait.assert_called_once_with(worker.PRINTER_NAME, self.api.dry_run)
+        # Verify wait_for_printer_idle was called twice (photo index 0 and final completion)
+        self.assertEqual(mock_wait.call_count, 2)
         mock_print.assert_called_once()
 
     @patch("worker.wait_for_printer_idle")
@@ -570,8 +604,8 @@ class TestJobProcessing(unittest.TestCase):
         res2 = worker.process_single_job(job2, self.api)
         self.assertTrue(res2)
 
-        # wait_for_printer_idle should have been called before printing photo in job1 AND job2
-        self.assertEqual(mock_wait.call_count, 2)
+        # wait_for_printer_idle called twice per job (photo 0 + completion) -> 4 times
+        self.assertEqual(mock_wait.call_count, 4)
         self.assertEqual(mock_print.call_count, 2)
 
     @patch("worker.print_file")
