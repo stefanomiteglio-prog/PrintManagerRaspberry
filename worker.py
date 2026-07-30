@@ -417,9 +417,8 @@ def process_single_job(job: dict, api: BackendAPI) -> bool:
 
         # B. Print all photos
         for idx, file_path in enumerate(downloaded_paths):
-            if idx > 0:
-                # Wait dynamically until printer is idle
-                wait_for_printer_idle(PRINTER_NAME, api.dry_run)
+            # Wait dynamically until printer is idle before printing ANY photo
+            wait_for_printer_idle(PRINTER_NAME, api.dry_run)
 
             print_ok = print_file(PRINTER_NAME, file_path, api.dry_run)
             if not print_ok:

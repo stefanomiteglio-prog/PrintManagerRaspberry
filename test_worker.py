@@ -514,6 +514,8 @@ class TestJobProcessing(unittest.TestCase):
 
         # Check printer was called twice
         self.assertEqual(mock_print.call_count, 2)
+        # Check wait_for_printer_idle was called for each photo (including idx 0)
+        self.assertEqual(mock_wait.call_count, 2)
 
         # Temp directory should be cleaned up
         temp_dir = worker.get_job_temp_dir(202)
@@ -523,6 +525,54 @@ class TestJobProcessing(unittest.TestCase):
         state = worker.load_state()
         self.assertEqual(state["completed_job_ids"], [202])
         self.assertIsNone(state["currently_processing_job_id"])
+
+    @patch("worker.wait_for_printer_idle")
+    @patch("worker.print_file")
+    def test_process_single_job_waits_idle_for_first_photo(self, mock_print, mock_wait):
+        self.api.download_photo.return_value = True
+        self.api.update_job_status.return_value = True
+        mock_print.return_value = True
+
+        job = {
+            "id": 206,
+            "photos": [
+                {"original_filename": "single.jpg", "download_url": "/single.jpg"}
+            ]
+        }
+
+        result = worker.process_single_job(job, self.api)
+        self.assertTrue(result)
+        # Verify wait_for_printer_idle was called for photo index 0
+        mock_wait.assert_called_once_with(worker.PRINTER_NAME, self.api.dry_run)
+        mock_print.assert_called_once()
+
+    @patch("worker.wait_for_printer_idle")
+    @patch("worker.print_file")
+    def test_multiple_consecutive_jobs_wait_idle(self, mock_print, mock_wait):
+        self.api.download_photo.return_value = True
+        self.api.update_job_status.return_value = True
+        mock_print.return_value = True
+
+        job1 = {
+            "id": 301,
+            "photos": [{"original_filename": "job1.jpg", "download_url": "/job1.jpg"}]
+        }
+        job2 = {
+            "id": 302,
+            "photos": [{"original_filename": "job2.jpg", "download_url": "/job2.jpg"}]
+        }
+
+        # Process first job
+        res1 = worker.process_single_job(job1, self.api)
+        self.assertTrue(res1)
+
+        # Process second job immediately
+        res2 = worker.process_single_job(job2, self.api)
+        self.assertTrue(res2)
+
+        # wait_for_printer_idle should have been called before printing photo in job1 AND job2
+        self.assertEqual(mock_wait.call_count, 2)
+        self.assertEqual(mock_print.call_count, 2)
 
     @patch("worker.print_file")
     def test_process_single_job_download_failure(self, mock_print):
