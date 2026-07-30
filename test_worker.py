@@ -518,8 +518,11 @@ class TestJobProcessing(unittest.TestCase):
             TEMP_STATE_FILE.unlink()
         self.api = MagicMock(spec=worker.BackendAPI)
         self.api.dry_run = False
+        self.sleep_patcher = patch("time.sleep")
+        self.mock_sleep = self.sleep_patcher.start()
 
     def tearDown(self):
+        self.sleep_patcher.stop()
         if TEMP_STATE_FILE.exists():
             TEMP_STATE_FILE.unlink()
 

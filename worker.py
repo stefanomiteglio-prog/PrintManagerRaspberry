@@ -34,6 +34,7 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://frontend-nexthouseinstant.page
 PRINTER_KEY = os.getenv("PRINTER_KEY")
 PRINTER_NAME = os.getenv("PRINTER_NAME", "SELPHY")
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "5"))
+PRINT_JOB_DELAY_SECONDS = int(os.getenv("PRINT_JOB_DELAY_SECONDS", "75"))
 
 # Local state file path
 STATE_FILE = Path(__file__).resolve().parent / ".worker_state.json"
@@ -435,9 +436,10 @@ def process_single_job(job: dict, api: BackendAPI) -> bool:
                 logger.error(error_msg)
                 break
             
-            # Give CUPS 2 seconds to transition states before checking next
+            # Wait for physical printing cycle to complete before next step
             if not api.dry_run:
-                time.sleep(2)
+                logger.info(f"Waiting {PRINT_JOB_DELAY_SECONDS} seconds for physical print cycle to complete...")
+                time.sleep(PRINT_JOB_DELAY_SECONDS)
 
     # 4. Final status report and state update
     if success:
